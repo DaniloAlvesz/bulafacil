@@ -132,11 +132,6 @@ function App() {
       let response = await performFetch("meta-llama/llama-4-scout-17b-16e-instruct");
 
       if (!response.ok) {
-        console.warn("Modelo principal falhou. Tentando modelo de fallback 90b...");
-        response = await performFetch("llama-3.2-90b-vision-instruct");
-      }
-
-      if (!response.ok) {
         const errData = await response.text();
         throw new Error(`Groq HTTP error! status: ${response.status} - ${errData}`);
       }
