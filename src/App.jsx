@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, AlertTriangle, Loader2, Pill, Clock, Phone, AlertCircle } from 'lucide-react';
+import { Camera, AlertTriangle, Loader2, Pill, Clock, Phone, AlertCircle, Utensils, Activity, AlertOctagon, HelpCircle, Calendar, ShieldAlert, Volume2, Square, Download, X } from 'lucide-react';
 
 function App() {
   // --- Persistent States ---
@@ -13,6 +13,92 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [apiResult, setApiResult] = useState(null);
+  const [speakingId, setSpeakingId] = useState(null);
+
+  // --- PWA Install Prompt States ---
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+
+  useEffect(() => {
+    // Check if already installed
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+    if (isStandalone) {
+      return; // Already installed, do nothing
+    }
+
+    // Check if iOS
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
+    setIsIOS(isIosDevice);
+
+    // Sempre mostrar a nossa caixa customizada após 2 segundos
+    const timer = setTimeout(() => setShowInstallPrompt(true), 2000);
+
+    // For Android / Chrome (Capturar o evento nativo se ele disparar)
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    const handleAppInstalled = () => {
+      setShowInstallPrompt(false);
+      setDeferredPrompt(null);
+    };
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) {
+      // Se não houver evento nativo (ex: acessando por HTTP no celular, ou sem manifest)
+      // Mostra a instrução manual para Android
+      alert("Para instalar agora: toque no menu do seu navegador (três pontinhos) e escolha 'Adicionar à tela inicial' ou 'Instalar aplicativo'.");
+      setShowInstallPrompt(false);
+      return;
+    }
+    setShowInstallPrompt(false);
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+    }
+  };
+
+  const handleSpeak = (text, id) => {
+    window.speechSynthesis.cancel();
+    if (speakingId === id) {
+      setSpeakingId(null);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'pt-BR';
+    utterance.onend = () => setSpeakingId(null);
+    utterance.onerror = () => setSpeakingId(null);
+    setSpeakingId(id);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  useEffect(() => {
+    return () => window.speechSynthesis.cancel();
+  }, []);
+
+  const SpeechButton = ({ text, id }) => (
+    <button 
+      onClick={() => handleSpeak(text, id)}
+      className="p-2 -mr-2 bg-transparent hover:bg-black/5 rounded-full shrink-0 transition-colors self-start outline-none focus:ring-2 focus:ring-blue-300"
+      aria-label="Ouvir instrução"
+    >
+      {speakingId === id ? <Square size={22} className="text-red-500" /> : <Volume2 size={22} className="text-gray-400" />}
+    </button>
+  );
 
   const fileInputRef = useRef(null);
 
@@ -98,7 +184,31 @@ function App() {
     try {
       const apiKey = import.meta.env.VITE_GROQ_API_KEY;
       
-      const prompt = `Você é um farmacêutico clínico especialista em letramento em saúde pública. Leia a imagem desta receita médica ou bula. Retorne APENAS um objeto JSON. Regras: 1. ZERO ALUCINAÇÃO: Se a caligrafia estiver ilegível, não adivinhe. 2. Não altere a prescrição. O JSON deve ter a estrutura: { "status": "sucesso" ou "erro", "mensagem_erro": "Preencha apenas se houver erro ou ilegibilidade. Se for sucesso, deixe vazio.", "medicamentos": [ { "nome": "Nome e concentração", "para_que_serve": "Explicação em 1 frase simples", "como_tomar": "Instrução hiper simplificada", "alerta": "O principal aviso de segurança" } ] }`;
+      const prompt = `Você é um farmacêutico clínico especialista em letramento em saúde pública e comunicação acessível. Analise rigorosamente a imagem desta receita médica ou bula.
+Regras inegociáveis:
+1. ZERO ALUCINAÇÃO: Se a caligrafia estiver ilegível, incompleta ou ambígua, não adivinhe. Preencha o campo "status" como "erro" e informe o problema no "mensagem_erro".
+2. IMPARCIALIDADE: Baseie-se exclusivamente em diretrizes clínicas padrão sem viés comercial ou julgamento.
+3. ACESSIBILIDADE: Use linguagem hiper simplificada, direcionada a leigos, sem jargões.
+4. Retorne APENAS um objeto JSON válido, sem markdown extra.
+Estrutura exigida do JSON:
+{
+  "status": "sucesso" ou "erro",
+  "mensagem_erro": "Preencha apenas se houver erro ou ilegibilidade crítica. Se for sucesso, deixe vazio.",
+  "medicamentos": [
+    {
+      "nome": "Nome do medicamento e concentração",
+      "para_que_serve": "Explicação em 1 frase muito simples e direta.",
+      "como_tomar": "Instrução hiper simplificada de dosagem e frequência.",
+      "tempo_tratamento": "Duração do tratamento (ex: 7 dias) ou 'Não informado/Uso contínuo'.",
+      "relacao_alimentos": "Orientação sobre jejum, refeições ou alimentos a evitar.",
+      "esquecimento_dose": "O que o paciente deve fazer se esquecer de tomar uma dose.",
+      "efeitos_colaterais": "Principais efeitos colaterais comuns e esperados.",
+      "sintomas_alerta": "Sintomas de alerta ou efeitos graves para buscar ajuda médica imediata.",
+      "riscos_uso_incorreto": "Explicação detalhada sobre o que o uso inadequado, abusivo ou superdosagem deste medicamento pode ocasionar no corpo.",
+      "alerta": "Principal aviso de segurança ou contraindicação crítica."
+    }
+  ]
+}`;
 
       const makePayload = (modelName) => ({
         model: modelName,
@@ -167,6 +277,45 @@ function App() {
       <div className="min-h-screen w-full max-w-md mx-auto flex flex-col px-6 py-6 gap-6 box-border relative">
         {children}
       </div>
+
+      {/* Modal de Instalação (PWA) */}
+      {showInstallPrompt && (
+        <div className="fixed bottom-0 left-0 right-0 p-4 z-50 flex justify-center animate-in slide-in-from-bottom-10 fade-in duration-500 font-sans">
+          <div className="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-md flex flex-col gap-4 border border-gray-100">
+            <div className="flex items-start justify-between">
+              <div className="flex gap-3 items-center">
+                <div className="bg-blue-600 p-2 rounded-xl text-white">
+                  <Download size={24} />
+                </div>
+                <div>
+                  <h3 className="text-gray-900 font-bold text-lg leading-tight">Instalar Bula Fácil</h3>
+                  <p className="text-gray-500 text-sm">Adicione à sua tela inicial para acesso rápido.</p>
+                </div>
+              </div>
+              <button onClick={() => setShowInstallPrompt(false)} className="text-gray-400 hover:text-gray-600 p-1 outline-none">
+                <X size={20} />
+              </button>
+            </div>
+            
+            {isIOS && (
+              <div className="bg-blue-50 p-3 rounded-lg text-sm text-blue-800">
+                <p>No iPhone: Toque em <strong>Compartilhar</strong> (ícone do meio no rodapé) e depois em <strong>Adicionar à Tela de Início</strong>.</p>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button onClick={() => setShowInstallPrompt(false)} className="flex-1 py-3 text-gray-600 font-semibold text-sm bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors outline-none">
+                Agora não
+              </button>
+              {!isIOS && (
+                <button onClick={handleInstallClick} className="flex-1 py-3 text-white font-semibold text-sm bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors shadow-md outline-none">
+                  Instalar App
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -216,6 +365,7 @@ function App() {
                       <p className="text-2xl font-bold text-gray-900 mb-1 text-wrap">{med.nome}</p>
                       <p className="text-base font-medium text-gray-700 leading-snug text-wrap">{med.para_que_serve}</p>
                     </div>
+                    <SpeechButton text={`Remédio ${idx + 1}. ${med.nome}. Para que serve: ${med.para_que_serve}`} id={`med-${idx}-intro`} />
                   </div>
 
                   <div className="w-full bg-white rounded-2xl p-5 shadow-lg flex items-start gap-4 relative overflow-hidden box-border break-words">
@@ -227,7 +377,92 @@ function App() {
                       <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-1 text-wrap">Como tomar</h2>
                       <p className="text-xl font-bold text-gray-900 mb-1 text-wrap">{med.como_tomar}</p>
                     </div>
+                    <SpeechButton text={`Como tomar: ${med.como_tomar}`} id={`med-${idx}-comotomar`} />
                   </div>
+
+                  {med.tempo_tratamento && med.tempo_tratamento.toLowerCase() !== "não informado" && (
+                    <div className="w-full bg-white rounded-xl p-4 shadow-md flex items-start gap-3 relative overflow-hidden box-border break-words">
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500"></div>
+                      <div className="bg-purple-100 p-2 rounded-full shrink-0">
+                        <Calendar size={24} className="text-purple-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 text-wrap">Tempo de Tratamento</h2>
+                        <p className="text-base font-bold text-gray-800 text-wrap">{med.tempo_tratamento}</p>
+                      </div>
+                      <SpeechButton text={`Tempo de tratamento: ${med.tempo_tratamento}`} id={`med-${idx}-tempo`} />
+                    </div>
+                  )}
+
+                  {med.relacao_alimentos && (
+                    <div className="w-full bg-white rounded-xl p-4 shadow-md flex items-start gap-3 relative overflow-hidden box-border break-words">
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-teal-500"></div>
+                      <div className="bg-teal-100 p-2 rounded-full shrink-0">
+                        <Utensils size={24} className="text-teal-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 text-wrap">Alimentos</h2>
+                        <p className="text-base font-bold text-gray-800 text-wrap">{med.relacao_alimentos}</p>
+                      </div>
+                      <SpeechButton text={`Relação com alimentos: ${med.relacao_alimentos}`} id={`med-${idx}-alimentos`} />
+                    </div>
+                  )}
+
+                  {med.esquecimento_dose && (
+                    <div className="w-full bg-white rounded-xl p-4 shadow-md flex items-start gap-3 relative overflow-hidden box-border break-words">
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-gray-400"></div>
+                      <div className="bg-gray-100 p-2 rounded-full shrink-0">
+                        <HelpCircle size={24} className="text-gray-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 text-wrap">Se Esquecer a Dose</h2>
+                        <p className="text-base font-bold text-gray-800 text-wrap">{med.esquecimento_dose}</p>
+                      </div>
+                      <SpeechButton text={`O que fazer se esquecer a dose: ${med.esquecimento_dose}`} id={`med-${idx}-esquecimento`} />
+                    </div>
+                  )}
+
+                  {med.efeitos_colaterais && (
+                    <div className="w-full bg-white rounded-xl p-4 shadow-md flex items-start gap-3 relative overflow-hidden box-border break-words">
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-yellow-400"></div>
+                      <div className="bg-yellow-100 p-2 rounded-full shrink-0">
+                        <Activity size={24} className="text-yellow-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 text-wrap">Efeitos Comuns</h2>
+                        <p className="text-base font-bold text-gray-800 text-wrap">{med.efeitos_colaterais}</p>
+                      </div>
+                      <SpeechButton text={`Efeitos colaterais comuns: ${med.efeitos_colaterais}`} id={`med-${idx}-efeitos`} />
+                    </div>
+                  )}
+
+                  {med.sintomas_alerta && (
+                    <div className="w-full bg-[#FFF4E5] border border-red-200 rounded-xl p-4 shadow-md flex items-start gap-3 relative overflow-hidden box-border break-words">
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-500"></div>
+                      <div className="bg-red-100 p-2 rounded-full shrink-0">
+                        <AlertOctagon size={24} className="text-red-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h2 className="text-xs font-bold text-red-800 uppercase tracking-wide mb-1 text-wrap">Sintomas de Alerta</h2>
+                        <p className="text-base font-bold text-red-900 text-wrap">{med.sintomas_alerta}</p>
+                      </div>
+                      <SpeechButton text={`Sintomas de alerta graves: ${med.sintomas_alerta}`} id={`med-${idx}-sintomasalerta`} />
+                    </div>
+                  )}
+
+                  {med.riscos_uso_incorreto && (
+                    <div className="w-full bg-[#FFF0F0] border border-red-300 rounded-xl p-4 shadow-md flex items-start gap-3 relative overflow-hidden box-border break-words">
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-700"></div>
+                      <div className="bg-red-200 p-2 rounded-full shrink-0">
+                        <ShieldAlert size={24} className="text-red-800" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h2 className="text-xs font-bold text-red-900 uppercase tracking-wide mb-1 text-wrap">Riscos do Uso Incorreto</h2>
+                        <p className="text-base font-bold text-red-950 text-wrap leading-relaxed">{med.riscos_uso_incorreto}</p>
+                      </div>
+                      <SpeechButton text={`Riscos do uso incorreto: ${med.riscos_uso_incorreto}`} id={`med-${idx}-riscos`} />
+                    </div>
+                  )}
 
                   <div className="w-full bg-[#FFF4E5] border-2 border-[#FFD29D] rounded-2xl p-5 shadow-lg flex items-start gap-4 relative overflow-hidden box-border break-words">
                     <div className="absolute left-0 top-0 bottom-0 w-2 bg-orange-500"></div>
@@ -240,6 +475,7 @@ function App() {
                         {med.alerta}
                       </p>
                     </div>
+                    <SpeechButton text={`Atenção principal: ${med.alerta}`} id={`med-${idx}-atencao`} />
                   </div>
                   
                   {idx < apiResult.medicamentos.length - 1 && (
@@ -265,7 +501,7 @@ function App() {
             className="w-full bg-blue-800 hover:bg-blue-700 transition-colors border-2 border-blue-400 rounded-xl flex items-center justify-center gap-3 shadow-md outline-none focus:ring-4 focus:ring-blue-300 decoration-transparent text-center py-4 px-4 box-border break-words"
           >
             <Phone size={24} className="text-blue-200 shrink-0" />
-            <span className="text-lg font-bold text-white tracking-wide text-wrap min-w-0">Dúvidas? Ligue para o SAMU (192)</span>
+            <span className="text-lg font-bold text-white tracking-wide text-wrap min-w-0">Em caso de emergência, ligue para o SAMU (192)</span>
           </a>
         </footer>
       </MainContainer>
