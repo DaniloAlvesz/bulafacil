@@ -3,9 +3,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const { imagem } = req.body;
+  const { imagem, tipo } = req.body;
   if (!imagem) {
-    return res.status(400).json({ error: 'Nenhuma imagem foi enviada no payload.' });
+    return res.status(400).json({ status: 'erro', mensagem_erro: 'Nenhuma imagem foi enviada no payload.' });
+  }
+
+  const tiposPermitidos = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+  if (tipo && !tiposPermitidos.includes(tipo.toLowerCase())) {
+    return res.status(400).json({ status: 'erro', mensagem_erro: 'Formato de imagem não suportado. Use JPEG, PNG ou WEBP.' });
   }
 
   const prompt = `Você é um farmacêutico clínico especialista em letramento em saúde pública e comunicação acessível. Analise rigorosamente a imagem desta receita médica ou bula.

@@ -4,9 +4,31 @@
 
 @layer base {
   html {
-    font-size: 18px; /* Base size larger than standard */
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-tap-highlight-color: transparent;
   }
   body {
-    @apply bg-blue-900 text-white font-sans antialiased;
+    @apply bg-slate-900 text-white font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  .card-header {
+    @apply flex items-center justify-between px-4 py-3 border-b;
+  }
+  .card-body {
+    @apply px-4 py-4;
+  }
+  .label-tag {
+    @apply text-xs font-bold uppercase tracking-widest;
+  }
+  .card-text {
+    @apply text-base font-medium leading-relaxed text-gray-800;
   }
 }
