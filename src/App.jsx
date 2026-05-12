@@ -149,22 +149,75 @@ function App() {
     }
   };
 
+  const GROQ_PROMPT = `Você é um farmacêutico clínico especialista em letramento em saúde pública e comunicação acessível. Analise rigorosamente a imagem desta receita médica ou bula.
+Regras inegociáveis:
+1. ZERO ALUCINAÇÃO: Se a caligrafia estiver ilegível, incompleta ou ambígua, não adivinhe. Preencha o campo "status" como "erro" e informe o problema no "mensagem_erro".
+2. IMPARCIALIDADE: Baseie-se exclusivamente em diretrizes clínicas padrão sem viés comercial ou julgamento.
+3. ACESSIBILIDADE: Use linguagem hiper simplificada, direcionada a leigos, sem jargões.
+4. Retorne APENAS um objeto JSON válido, sem markdown extra.
+Estrutura exigida do JSON:
+{
+  "status": "sucesso" ou "erro",
+  "mensagem_erro": "",
+  "medicamentos": [
+    {
+      "nome": "Nome do medicamento e concentração",
+      "para_que_serve": "Explicação em 1 frase muito simples e direta.",
+      "como_tomar": "Instrução hiper simplificada de dosagem e frequência.",
+      "tempo_tratamento": "Duração do tratamento (ex: 7 dias) ou 'Não informado/Uso contínuo'.",
+      "relacao_alimentos": "Orientação sobre jejum, refeições ou alimentos a evitar.",
+      "esquecimento_dose": "O que o paciente deve fazer se esquecer de tomar uma dose.",
+      "efeitos_colaterais": "Principais efeitos colaterais comuns e esperados.",
+      "sintomas_alerta": "Sintomas de alerta ou efeitos graves para buscar ajuda médica imediata.",
+      "riscos_uso_incorreto": "Explicação detalhada sobre o que o uso inadequado, abusivo ou superdosagem deste medicamento pode ocasionar no corpo.",
+      "alerta": "Principal aviso de segurança ou contraindicação crítica."
+    }
+  ]
+}`;
+
   const submitData = async (base64String, fileType) => {
     try {
-      const res = await fetch('/api/processar-receita', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imagem: base64String, tipo: fileType }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const parsedData = await res.json();
+      let parsedData;
+
+      if (import.meta.env.DEV) {
+        // Dev local: chama Groq diretamente (sem backend)
+        const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+        if (!apiKey) throw new Error('VITE_GROQ_API_KEY não definida no .env local');
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+            messages: [{ role: 'user', content: [{ type: 'text', text: GROQ_PROMPT }, { type: 'image_url', image_url: { url: base64String } }] }],
+            temperature: 0.1, max_completion_tokens: 1024, top_p: 1, stream: false,
+            response_format: { type: 'json_object' }
+          }),
+        });
+        if (!res.ok) throw new Error(`Groq HTTP ${res.status}: ${await res.text()}`);
+        const data = await res.json();
+        const raw = data.choices[0].message.content.replace(/```json/gi, '').replace(/```/g, '').trim();
+        parsedData = JSON.parse(raw);
+      } else {
+        // Produção: usa o backend Vercel
+        const res = await fetch('/api/processar-receita', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imagem: base64String, tipo: fileType }),
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Servidor retornou HTTP ${res.status}: ${errText}`);
+        }
+        parsedData = await res.json();
+      }
+
       if (parsedData.status === 'sucesso') salvarNoHistorico(parsedData);
       setApiResult(parsedData);
       setIsLoading(false);
       setShowResults(true);
     } catch (err) {
       console.error(err);
-      setApiResult({ status: 'erro', mensagem_erro: `Erro de conexão com o servidor: ${err.message}` });
+      setApiResult({ status: 'erro', mensagem_erro: `Erro: ${err.message}` });
       setIsLoading(false);
       setShowResults(true);
     }
